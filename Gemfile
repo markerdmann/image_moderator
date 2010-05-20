@@ -1,0 +1,6 @@
+source "http://rubygems.org"
+gem "sinatra"
+gem "redis"
+gem "crowdflower"
+gem "httparty"
+gem "resque"
