@@ -1,4 +1,4 @@
-# This app relies on the ProcessImage class in /builder/lib/image_moderator.rb.
+# This app depends on the ProcessImage class in /builder/lib/image_moderator.rb.
 
 require "rubygems"
 require "bundler"
@@ -10,9 +10,14 @@ require 'digest/md5'
 require 'redis'
 require 'json'
 require 'resque'
-require 'helper_methods'
 
-include HelperMethods
+configure :development do
+  set :base_uri, "http://api.localhost.com:4000/"
+end
+
+configure :production do
+  set :base_uri, "https://api.crowdflower.com/"
+end
 
 $redis = Redis.new
 Resque.redis = $redis
@@ -22,37 +27,38 @@ get '/api/imgs' do
   content_type :json
   
   url = params[:url]
+  filename = Digest::MD5.hexdigest(url)
   key = params[:token]
-  client_id = Digest::MD5.hexdigest(key)
-  job_id = $redis.get(client_id)
-  unit_id = $redis.get("image_moderator:jobs:#{job_id}:url:#{url}")
+  job_id = $redis.get("image_moderator:#{key}")
+  unit_id = $redis.get("image_moderator:jobs:#{job_id}:filename:#{filename}")
+    
+  unit_data = HTTParty.get(
+    options.base_uri + "v1/jobs/#{job_id}/units/#{unit_id}.json?key=#{key}"
+    )
+  throw :halt, [401, "Not authenticated"] if unit_data.code == 401
+  throw :halt, [404, "Not found"] if unit_data.code == 404
+  agg = unit_data['results']['is_porn']['agg']
+  confidence = unit_data['results']['is_porn']['confidence']
   
-  if not authenticated?(key)
-    
-    response = { :error => "Not authenticated" }
-    
+  # use confidence as the rating if agg is true. if agg is false,
+  # the rating should be the inverse of confidence.
+  # (rating should be a value between 0 and 1, where 0 is definitely
+  # not porn and 1 is definitely porn)
+  if confidence
+    rating = agg == true ? confidence : 1 - confidence
   else
-    
-    unit_data = HTTParty.get("https://api.crowdflower.com/v1/jobs/#{job_id}/units/#{unit_id}.json?key=#{key}")
-    agg = unit_data['results']['is_porn']['agg']
-    confidence = unit_data['results']['is_porn']['confidence']
-    
-    # use confidence as the rating if agg is true. if agg is false,
-    # the rating should be the inverse of confidence.
-    # (rating should be a value between 0 and 1, where 0 is definitely
-    # not porn and 1 is definitely porn)
-    if confidence
-      rating = agg == true ? confidence : 1 - confidence
-    else
-      rating = nil
-    end
-    
-    id = unit_data['id']
-    created_at = unit_data['created_at']
-    response = { :rating => rating, :id => id, :url => url, :created_at => created_at }
-    
+    rating = nil
   end
   
+  id = unit_data['id']
+  created_at = unit_data['created_at']
+  response = {  
+    :rating => rating, 
+    :id => id, 
+    :url => url, 
+    :created_at => created_at 
+    }
+    
   response.to_json
   
 end
@@ -63,33 +69,34 @@ post '/api/imgs' do
   
   key = params[:token]
   url = params[:url]
+    
+  Resque.enqueue(ProcessImage, url, key)
   
-  if not authenticated?(key)
-    
-    # we could make authentication faster by caching the result
-    # and expiring after a day, or by caching and refreshing
-    # the result in the background every time a call is made.
-    # right now this step adds about 600ms to the request loop
-    # on my local box.
-    
-    response = { :error => "Not authenticated"}
-    
-  # make sure the image URL works using a HEAD request.
-  # give up after 10 seconds.
-  # it sucks to include this in the request loop, but it's important
-  # to notify the user if there's a problem with their URL
-  # TODO: what if their image doesn't handle HEAD requests properly?
-  elsif HTTParty.head(url, :timeout => 10).code != 200
-    
-    response = { :url => url, :error => "The image URL did not return a 200 response" }
-    
+  if authenticated?(key)
+  
+    response = { :success => "Image queued for processing. If an error is "  \
+                             "encountered, a notification will be posted "   \
+                             "to your webhook URI (if applicable)." }
   else
     
-    Resque.enqueue(ProcessImage, url, key)
-    response = { :success => "Image queued for processing" }
+    response = { :error => "Authentication unsuccessful" }
+    throw :halt, [401, response.to_json]
     
   end
   
   response.to_json
+  
+end
+
+# this is here so that Resque knows how to queue the job
+class ProcessImage
+  
+  @queue = :low
+  
+end
+
+def authenticated?(key)
+  
+  HTTParty.get(options.base_uri + "v1/account.json?key=#{key}").code == 200
   
 end
