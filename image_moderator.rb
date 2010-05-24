@@ -70,10 +70,9 @@ post '/api/imgs' do
   key = params[:token]
   url = params[:url]
     
-  Resque.enqueue(ProcessImage, url, key)
-  
   if authenticated?(key)
-  
+    
+    Resque.enqueue(ProcessImage, url, key)
     response = { :success => "Image queued for processing. If an error is "  \
                              "encountered, a notification will be posted "   \
                              "to your webhook URI (if applicable)." }
