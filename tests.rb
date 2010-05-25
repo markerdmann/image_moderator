@@ -55,17 +55,16 @@ class ImageModeratorTest < Test::Unit::TestCase
   
   def test_it_returns_the_result
     
-    get '/api/imgs/0', :url => TEST_IMAGE, :token => API_KEY
+    get '/api/imgs/0.xml', :url => TEST_IMAGE, :token => API_KEY
     assert last_response.status == 200
-    assert last_response.body =~ /rating/ 
-    assert_contains last_response.body, /rating/, /created_at/, /url/, /id/
+    assert_contains last_response.body, /<rating>/, /<created_at>/, /<url>/, /<id>/
     
   end
   
   def test_webhook_sends_test_data
     
     
-    post '/forward_webhook?webhook_uri%3Dhttp%3A%2F%2Fwww.postbin.org%2F1jl062e&test%3Dtrue'
+    post '/forward_webhook.json?webhook_uri%3Dhttp%3A%2F%2Fwww.postbin.org%2F1ggbbe5&test%3Dtrue'
     response_body = HTTParty.get("http://www.postbin.org/1jl062e").body
     check_time(response_body)
     assert last_response.status == 200
@@ -78,7 +77,7 @@ class ImageModeratorTest < Test::Unit::TestCase
       "results" =>
         {
           "judgments" => [],
-          "is_porn" => {"agg" => nil,"confidence" => 0.5}
+          "is_porn" => {"agg" => true,"confidence" => 0.5}
         },
         "job_id" => 10700,
         "state" => "new",
@@ -92,7 +91,7 @@ class ImageModeratorTest < Test::Unit::TestCase
         "judgments_count" => 0,
         "id" => 14239444
     }
-    post '/forward_webhook?webhook_uri%3Dhttp%3A%2F%2Fwww.postbin.org%2F1jl062e', :signal => :unit_complete, :payload => payload.to_json
+    post '/forward_webhook.xml?webhook_uri%3Dhttp%3A%2F%2Fwww.postbin.org%2F1jl062e', :signal => :unit_complete, :payload => payload.to_json
     response_body = HTTParty.get("http://www.postbin.org/1jl062e").body
     check_time(response_body)
     assert last_response.status == 200

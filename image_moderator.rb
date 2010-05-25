@@ -10,6 +10,7 @@ require 'digest/md5'
 require 'redis'
 require 'json'
 require 'resque'
+require 'patches/ruby'
 
 configure :development do
   set :base_uri, "http://api.localhost.com:4000/"
@@ -22,9 +23,10 @@ end
 $redis = Redis.new
 Resque.redis = $redis
 
-get '/api/imgs/:id' do
+get '/api/imgs/:id.:format' do
   
   content_type :json
+  as_format = params[:format]
   
   url = params[:url]
   filename = Digest::MD5.hexdigest(url)
@@ -34,8 +36,8 @@ get '/api/imgs/:id' do
     
   unit_data = get_unit_data(job_id, unit_id, key)
   response = format_response(unit_data, url)
-    
-  response.to_json
+  
+  prepare(response, as_format)
   
 end
 
@@ -63,20 +65,20 @@ post '/api/imgs/:id' do
   
 end
 
-post '/forward_webhook' do
+post '/forward_webhook.:format' do
   
   content_type :json
   
   client_webhook_uri = params[:webhook_uri]
-  puts client_webhook_uri
+  as_format = params[:format]
   
   if params[:signal] == 'unit_complete'
   
-    unit_data = params[:payload]
-    puts unit_data.inspect
+    unit_data = JSON.parse(params[:payload])
     response = format_response(unit_data, unit_data['data']['url'])
+    body = prepare(response, as_format)
     
-    HTTParty.post(client_webhook_uri, :body => response)
+    HTTParty.post(client_webhook_uri, :body => body)
     
   elsif params[:test]
     
@@ -127,7 +129,7 @@ def get_unit_data(job_id, unit_id, key)
 end
 
 def format_response(unit_data, url)
-  
+
   agg = unit_data['results']['is_porn']['agg']
   confidence = unit_data['results']['is_porn']['confidence']
   
@@ -144,10 +146,21 @@ def format_response(unit_data, url)
   id = unit_data['id']
   created_at = unit_data['created_at']
   response = {  
-    :rating => rating, 
-    :id => id, 
-    :url => url, 
-    :created_at => created_at 
+    'rating' => rating, 
+    'id' => id, 
+    'url' => url, 
+    'created_at' => created_at 
     }
+  
+end
+
+def prepare(response, as_format)
+  
+  if as_format.downcase == 'xml'    
+    response = {:image => response}
+    response.to_simple_xml
+  else
+    response.to_json
+  end
   
 end
