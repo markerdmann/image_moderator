@@ -63,7 +63,6 @@ class ImageModeratorTest < Test::Unit::TestCase
   
   def test_webhook_sends_test_data
     
-    
     post '/forward_webhook.json?webhook_uri%3Dhttp%3A%2F%2Fwww.postbin.org%2F1ggbbe5&test%3Dtrue'
     response_body = HTTParty.get("http://www.postbin.org/1jl062e").body
     check_time(response_body)
